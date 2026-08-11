@@ -1,0 +1,23 @@
+# Claude Code 관련
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.claude*/
+.mcp.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# 데이터 / 체크포인트
+data/
+*.pt
+*.ckpt
