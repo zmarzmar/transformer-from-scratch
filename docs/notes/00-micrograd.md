@@ -416,6 +416,131 @@ plt.plot(np.arange(-5,5,0.2),np.tanh(np.arange(-5,5,0.2))); plt.grid();
 이것이 활성화 함수 또는 압축 함수의 역할이다. 이 뉴런에서 나오는 값은
 가중치와 입력값의 내적에 활성화 함수를 적용한 값이다.
 
+### 2차원 뉴런 만들기
+
+```python
+x1 = Value(2.0, label='x1')
+x2 = Value(0.0, label='x2')
+w1 = Value(-3.0, label='w1')
+w2 = Value(1.0, label='w2')
+b = Value(6.8813735870195432, label='b')
+x1w1 = x1*w1; x1w1.label = 'x1w1'
+x2w2 = x2*w2; x2w2.label = 'x2w2'
+x1w1x2w2 = x1w1 + x2w2; x1w1x2w2.label = 'x1w1 + x2w2'
+n = x1w1x2w2 + b; n.label = 'n'
+```
+
+2차원 뉴런.
+
+- 두 개의 입력값 x1, x2
+- 뉴런의 가중치 w1, w2 — 각 입력에 대한 시냅스 강도를 나타낸다.
+- 뉴런의 바이어스 b
+
+작은 단계로 나눠 계산하기 때문에 우리는 모든 중간 노드에 대한 포인터를 가지고 있다.
+
+b가 `6.8813735870195432`라는 이상한 값인 이유는, tanh를 통과한 출력이 정확히
+0.7071...이 되도록 역산한 값이기 때문이다. 그러면 미분값이 딱 0.5로 떨어져서
+손으로 역전파를 검산하기 편하다.
+
+### tanh를 노드 하나로 두기
+
+역전파는 "쪼개는 단위"와 무관하다. 각 노드가 자기 국소 미분만 알면 된다.
+
+1. 노드를 어디까지 쪼갤지는 설계자 마음이다.
+tanh를 exp/뺄셈/나눗셈 5개 노드로 쪼개도 되고, 통째로 1개 노드로 둬도 된다. 어느 쪽이든 최종 grad는 똑같이 나온다. 쪼갠 쪽은 중간 값을 더 볼 수 있고, 안 쪼갠 쪽은 코드가 짧고 빠르다. 그게 전부다.
+
+2. 노드가 되기 위한 자격 조건은 딱 둘이다.
+- 순방향: 입력 → 출력 값을 계산할 수 있나
+- 역방향: 출력이 흔들릴 때 입력이 얼마나 흔들리나 (국소 미분)
+
+3. "국소"인 이유는 시야가 좁아도 되기 때문이다.
+tanh 노드는 자기 앞에 뭐가 있었는지, 뒤에 L까지 몇 단계가 남았는지 전혀 모른다. 아는 건 "내 입구가 흔들리면 내 출구가 0.5배로 흔들린다" 하나뿐. 전체 경로는 연쇄 법칙이 이 국소값들을 곱해가며 알아서 이어붙인다.
+
+4. 그래서 함수가 아무리 복잡해도 상관없다.
+새 연산을 추가하고 싶으면 그 두 개만 채워 넣으면 된다. 이게 확장 가능한 이유다.
+
+```python
+class Value:
+    
+    def __init__(self, data, _children=(), _op='', label=''):
+        self.data = data
+        self.grad = 0.0
+        self._prev = set(_children)
+        self._op=_op
+        self.label = label
+    
+    def __repr__(self):
+        return f"Value(data={self.data})"
+    
+    def __add__(self, other):
+        out = Value(self.data + other.data, (self, other),'+')
+        return out
+    
+    def __mul__(self, other):
+        out = Value(self.data * other.data, (self, other), '*')
+        return out
+    
+    def tanh(self):
+        x = self.data
+        t = (math.exp(2*x) - 1)/(math.exp(2*x) + 1)
+        out = Value(t, (self, ), 'tanh')
+        return out
+```
+따라서 이런식으로 tanh 함수를 구현 할 수 있다.
+
+```python
+x1 = Value(2.0, label='x1')
+x2 = Value(0.0, label='x2')
+w1 = Value(-3.0, label='w1')
+w2 = Value(1.0, label='w2')
+b = Value(6.8813735870195432, label='b')
+x1w1 = x1*w1; x1w1.label = 'x1w1'
+x2w2 = x2*w2; x2w2.label = 'x2w2'
+x1w1x2w2 = x1w1 + x2w2; x1w1x2w2.label = 'x1w1 + x2w2'
+n = x1w1x2w2 + b; n.label = 'n'
+o = n.tanh(); o.label = 'o'
+draw_dot(o)
+```
+이를 통해 tanh()는 미분 가능한 작은 노드 연산이 되고 tanh()의 미분값을 알고 있으면 역전파를 통해 계산할 수 있게 된다.
+
+### 뉴런 역전파를 손으로 계산
+
+신경망 설정에서 우리가 가장 중요하게 생각하는 것은 가중치, 특히 w1, w2에 대한 뉴런들의 미분값이다. 최적화 과정에서 이 가중치들을 변경할 것이기 때문
+
+```
+o = tanh(n)
+do / dn = 1 - tanh(n)**2 = 1 - o**2
+```
+
+```python
+o.grad = 1.0
+1 - o.data**2
+```
+
+```
+0.4999999999999999
+```
+
+따라서 n.grad = 0.5.
+(정확히 0.5가 아닌 건 부동소수점 오차일 뿐이다.)
+
+나머지도 계산해보면
+
+```python
+o.grad = 1.0
+n.grad = 0.5
+x1w1x2w2.grad = 0.5
+b.grad = 0.5
+x1w1.grad = 0.5
+x2w2.grad = 0.5
+x2.grad = w2.data * x2w2.grad
+w2.grad = x2.data * x2w2.grad
+x1.grad = w1.data * x1w1.grad
+w1.grad = x1.data * x1w1.grad
+```
+
+x2.data가 0이기 때문에 w2의 기울기가 0인 것을 확인 할 수 있다.
+
 ## 직접 해볼 것
 - [ ] PyTorch 그래디언트와 대조 검증
 - [ ] 연산자 확장 (exp, log)
